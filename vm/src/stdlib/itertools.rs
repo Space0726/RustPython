@@ -659,6 +659,90 @@ impl PyItertoolsFilterFalse {
 
 #[pyclass]
 #[derive(Debug)]
+struct PyItertoolsGroupby {
+    iterable: PyObjectRef,
+    keyfunc: PyObjectRef,
+    tgtkey: RefCell<PyObjectRef>,
+    currkey: RefCell<PyObjectRef>,
+    currvalue: RefCell<PyObjectRef>,
+}
+
+impl PyValue for PyItertoolsGroupby {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "groupby")
+    }
+}
+
+//struct _Grouper {
+    //parent: &PyItertoolsGroupby,
+    //tgtkey: RefCell<PyObjectRef>
+//}
+
+fn groupby_step(&gbo: PyItertoolsGroupby, vm: &VirtualMachine) {
+    let newvalue = call_next(vm, &gbo.iterable)?;
+    let newkey = if gbo.keyfunc.is(&vm.get_none()) {
+        newvalue.clone()
+    } else {
+        vm.invoke(&gbo.keyfunc, vec![newvalue.clone()])?
+    };
+    gbo.currvalue.set(newvalue.clone());
+    gbo.currkey.set(newkey.clone());
+}
+
+#[pyimpl]
+impl PyItertoolsGroupby {
+    #[pyslot]
+    fn tp_new(
+        cls: PyClassRef,
+        iterable: PyObjectRef,
+        key: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let iter = get_iter(vm, &iterable)?;
+
+        PyItertoolsGroupby {
+            iterable: iter,
+            keyfunc: key.unwrap_or_else(|| vm.get_none()),
+            tgtkey: vm.get_none(),
+            currkey: vm.get_none(),
+            currvalue: vm.get_none(),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = call_next(vm, &self.iterable)?;
+        loop {
+            if self.tgtkey.is(&vm.get_none()) {
+                break;
+            } else {
+                // Comparison self.tgtkey and self.currkey
+                // If there are same, continue
+                // If there are not the same, break;
+            }
+
+            groupby_step(&self);
+            if self.currkey.is(&vm.get_none()) {
+                break;
+            }
+        }
+        self.tgtkey.set(self.currkey.clone());
+        // Make grouper object and packing tuple with self.currkey
+        // let grouper = _Grouper{};
+        // let r = PyTuple::from(self.currkey, grouper);
+        // Ok(r)
+        Ok(obj)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>) -> PyRef<Self> {
+        zelf
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
 struct PyItertoolsAccumulate {
     iterable: PyObjectRef,
     binop: PyObjectRef,
@@ -1369,6 +1453,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let filterfalse = ctx.new_class("filterfalse", ctx.object());
     PyItertoolsFilterFalse::extend_class(ctx, &filterfalse);
 
+    let groupby = ctx.new_class("groupby", ctx.object());
+    PyItertoolsGroupby::extend_class(ctx, &groupby);
+
     let permutations = ctx.new_class("permutations", ctx.object());
     PyItertoolsPermutations::extend_class(ctx, &permutations);
 
@@ -1400,6 +1487,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "dropwhile" => dropwhile,
         "islice" => islice,
         "filterfalse" => filterfalse,
+        "groupby" => groupby,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,
