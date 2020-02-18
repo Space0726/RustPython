@@ -665,6 +665,7 @@ struct PyItertoolsGroupby {
     tgtkey: RefCell<PyObjectRef>,
     currkey: RefCell<PyObjectRef>,
     currvalue: RefCell<PyObjectRef>,
+    currgrouper: Rc<PyItertoolsGroupbyGrouper>
 }
 
 impl PyValue for PyItertoolsGroupby {
@@ -673,20 +674,29 @@ impl PyValue for PyItertoolsGroupby {
     }
 }
 
-//struct _Grouper {
-    //parent: &PyItertoolsGroupby,
-    //tgtkey: RefCell<PyObjectRef>
-//}
+#[derive(Debug)]
+struct PyItertoolsGroupbyGrouper {
+    grouper: RefCell<Vec<PyObjectRef>>,
+    tgtkey: RefCell<PyObjectRef>
+}
 
-fn groupby_step(&gbo: PyItertoolsGroupby, vm: &VirtualMachine) {
+impl PyItertoolsGroupbyGrouper {
+    fn new(tgtkey: RefCell<PyObjectRef>) -> PyResult<Rc<PyItertoolsGroupbyGrouper>> {
+        Ok(Rc::new(PyItertoolsGroupbyGrouper {
+            grouper: RefCell::new(vec![]),
+            tgtkey: tgtkey,
+        }))
+    }
+}
+fn groupby_step(gbo: &PyItertoolsGroupby, vm: &VirtualMachine) {
     let newvalue = call_next(vm, &gbo.iterable)?;
     let newkey = if gbo.keyfunc.is(&vm.get_none()) {
         newvalue.clone()
     } else {
-        vm.invoke(&gbo.keyfunc, vec![newvalue.clone()])?
+        vm.invoke(&gbo.keyfunc, vec![newvalue.clone()])
     };
-    gbo.currvalue.set(newvalue.clone());
-    gbo.currkey.set(newkey.clone());
+    gbo.currvalue.replace(newvalue.borrow().clone());
+    gbo.currkey.replace(newkey.borrow().clone());
 }
 
 #[pyimpl]
@@ -699,40 +709,40 @@ impl PyItertoolsGroupby {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let iter = get_iter(vm, &iterable)?;
+        let obj = call_next(vm, &iter)?;
 
         PyItertoolsGroupby {
             iterable: iter,
             keyfunc: key.unwrap_or_else(|| vm.get_none()),
-            tgtkey: vm.get_none(),
-            currkey: vm.get_none(),
-            currvalue: vm.get_none(),
+            tgtkey: RefCell::new(obj.clone()),
+            currkey: RefCell::new(obj.clone()),
+            currvalue: RefCell::new(obj.clone()),
+            currgrouper: PyItertoolsGroupbyGrouper::new(RefCell::new(obj.clone()))?
         }
         .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let obj = call_next(vm, &self.iterable)?;
-        loop {
-            if self.tgtkey.is(&vm.get_none()) {
-                break;
-            } else {
+        //let obj = call_next(vm, &self.iterable)?;
+        //loop {
+            //if self.tgtkey.is(&vm.get_none()) {
+                //break;
+            //} else {
                 // Comparison self.tgtkey and self.currkey
                 // If there are same, continue
                 // If there are not the same, break;
-            }
+            //}
 
-            groupby_step(&self);
-            if self.currkey.is(&vm.get_none()) {
-                break;
-            }
-        }
-        self.tgtkey.set(self.currkey.clone());
+            //groupby_step(&self, &vm);
+            //if self.currkey.is(&vm.get_none()) {
+                //break;
+            //}
+        //}
+        //self.tgtkey.set(self.currkey.clone());
         // Make grouper object and packing tuple with self.currkey
         // let grouper = _Grouper{};
-        // let r = PyTuple::from(self.currkey, grouper);
-        // Ok(r)
-        Ok(obj)
+        Ok(self.currkey.borrow().clone())
     }
 
     #[pymethod(name = "__iter__")]
